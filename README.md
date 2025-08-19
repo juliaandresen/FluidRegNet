@@ -6,5 +6,3 @@ Basic idea of FluidRegNet: Compensate non-correspondences between time points (n
 For the results in the paper, the OCT images were flattened at the Bruch's membrane.
 
 To run the code, you need to enter the path to your data (in loaders.py) and the path to the location where the results will be stored (in training.py). 
-
-A demo script showing how to use the trained FluidRegNet will be added soon.
