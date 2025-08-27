@@ -6,3 +6,15 @@ Basic idea of FluidRegNet: Compensate non-correspondences between time points (n
 For the results in the paper, the OCT images were flattened at the Bruch's membrane.
 
 To run the code, you need to enter the path to your data (in loaders.py) and the path to the location where the results will be stored (in training.py). 
+
+
+## Anomaly Detection with FluidRegNet
+1. Re-training for registration of healthy to pathological images (trainingHealthyToPatho.py)
+2. Use trained network to register several healthy images to one pathological image and use deformation fields and appearance offsets to generate (binary) segmentations of pathologies (generateAnomalyMaps.py)
+3. Combine segmentations to get anomaly score (generateAnomalyMaps.py)
+
+
+## FluidRegINR
+INR-based implementation of fluid-aware OCT registration using two INRs per image pair that generate deformation fields
+and pathology seeds, respectively. Compared to FluidRegNet, large deformations can be mapped better, the
+inserted pathologies, however, are less accurate.
