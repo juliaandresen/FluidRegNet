@@ -1,8 +1,6 @@
-
+import numpy as np
 import torch
 
-import numpy as np
-import torch.nn.functional as F
 
 class SineLayer(torch.nn.Module):
     
@@ -86,7 +84,8 @@ class InputEncoding(torch.nn.Module):
         x_encoded = torch.cat((x_encoded.sin(), x_encoded.cos(), x) if self.append_coords else (x_encoded.sin(), x_encoded.cos()), dim=-1)
         
         return x_encoded
-    
+
+
 class ImpNet(torch.nn.Module):
     
     '''
@@ -212,8 +211,5 @@ class ImpNet(torch.nn.Module):
 
                 x = layer(x)       
                         
-            return x    
-        
-        
-
+            return x
         
