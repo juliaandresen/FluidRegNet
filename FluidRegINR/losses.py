@@ -1,9 +1,5 @@
-import math
-
-import torch
-import torch.nn.functional as F
-
 import numpy as np
+import torch
 
 
 class MSELoss(torch.nn.Module):    
@@ -28,6 +24,7 @@ class MSELoss(torch.nn.Module):
         else:
 
             return torch.mean((y_true - y_pred)**2)
+
 
 class LNCCLoss(torch.nn.Module):
     
@@ -81,7 +78,8 @@ class LNCCLoss(torch.nn.Module):
         else:
 
             return -torch.mean(cc)    
-        
+
+
 class NCCLoss(torch.nn.Module):
     
     '''
@@ -314,6 +312,7 @@ class BendingEnergyRegularizer(torch.nn.Module):
         )[0]
         return grad
 
+
 class DiceLoss(torch.nn.Module):
     
     """
@@ -383,16 +382,7 @@ class DiceScore(torch.nn.Module):
             
             dice_axes = weights*dice_axes
         
-        return dice_axes      
-        
-def DiceScore_np(y_true, y_pred):
-    
-    y_true_f = y_true.flatten()
-    y_pred_f = y_pred.flatten()
-
-    intersection = np.sum(y_true_f * y_pred_f)
-
-    return (2. * intersection) / (np.sum(np.clip(y_true_f + y_pred_f, a_min=1e-5, a_max=2)))            
+        return dice_axes
         
         
 class JacobianDet(torch.nn.Module):
@@ -443,7 +433,8 @@ class JacobianDet(torch.nn.Module):
         grad = torch.autograd.grad(output, [input_coords], grad_outputs=grad_outputs, create_graph=True)[0]
 
         return grad           
-    
+
+
 class ExclusionLossCoords(torch.nn.Module):
     
     '''
@@ -530,51 +521,3 @@ class ExclusionLossCoords_corr(torch.nn.Module):
         jacobian_matrix = torch.autograd.grad(output, [input_coords], grad_outputs=torch.ones_like(output), create_graph=True)[0]
 
         return jacobian_matrix
-
-    # def compute_jacobian_matrix(self, input_coords, output, add_identity=True):
-    #
-    #     dim = input_coords.shape[1]
-    #     #dim = output.shape[1]
-    #
-    #     jacobian_matrix = torch.zeros(input_coords.shape[0], dim, dim).to(input_coords.device)
-    #
-    #     for i in range(dim):
-    #
-    #         jacobian_matrix[:, i, :] = self.gradient(input_coords[:, i], output)
-    #
-    #         if add_identity:
-    #
-    #             jacobian_matrix[:, i, i] += torch.ones_like(jacobian_matrix[:, i, i])
-    #
-    #     return jacobian_matrix
-    #
-    # def gradient(self, input_coords, output, grad_outputs=None):
-    #
-    #     grad_outputs = torch.ones_like(output)
-    #
-    #     grad = torch.autograd.grad(output, [input_coords], grad_outputs=grad_outputs, create_graph=True)[0]
-    #     print(grad.shape)
-    #     return grad
-    
-    
-    
-    
-    
-    
-    
-    
-    
-    
-    
-    
-    
-    
-    
-    
-    
-    
-    
-    
-    
-    
-    
