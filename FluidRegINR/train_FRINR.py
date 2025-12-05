@@ -9,9 +9,9 @@ import pandas as pd
 from tqdm import tqdm
 from itertools import chain
 
-from libs3D.networks import ImpNet
-from libs3D.losses import MSELoss, LNCCLoss, NCCLoss, JacobianLossCoords, GradLossCoords
-from libs3D.data import make_coords_tensor, fast_trilinear_interpolation, MetricMonitor
+from .networks import ImpNet
+from .losses import MSELoss, LNCCLoss, NCCLoss, JacobianLossCoords, GradLossCoords
+from .data import make_coords_tensor, fast_trilinear_interpolation, MetricMonitor
 
 
 '''
