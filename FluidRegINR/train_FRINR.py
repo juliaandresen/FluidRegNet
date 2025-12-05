@@ -9,34 +9,42 @@ import pandas as pd
 from tqdm import tqdm
 from itertools import chain
 
-from networks import ImpNet
-from losses import MSELoss, LNCCLoss, NCCLoss, JacobianLossCoords, GradLossCoords
-from data import make_coords_tensor, fast_trilinear_interpolation, MetricMonitor
+from libs3D.networks import ImpNet
+from libs3D.losses import MSELoss, LNCCLoss, NCCLoss, JacobianLossCoords, GradLossCoords
+from libs3D.data import make_coords_tensor, fast_trilinear_interpolation, MetricMonitor
 
 
-# TODO: Change path
-# Implementation assumes the following file structure:
-# .../patient_id/date1/vol_flat.nii (Preprocessed, flattened OCT image from timepoint 1)
-# .../patient_id/date2/vol_flat.nii (Preprocessed, flattened OCT image from timepoint 2)
-# with date1/2 being given as YYYYMMDDL, where L stands for laterality, e.g.
-# 20250818R - Image of right eye acquired on 18th August 2025
+'''
+Source code for
+FRINR: Pathology-Aware Implicit Neural Registration for Change Analysis in Retinal OCT Data
+by J. Andresen, B. Kahrs, H. Handels and T. Kepp (BVM 2026)
+
+This code relies in large parts on https://github.com/BrainImageAnalysis/ImpRegDec
+'''
 
 
-data_path = 'path/to/data'
-all_ids = [1, 2, 3, 4, 5, 6, 7, 8, 9, 10]
+# TODO: Replace paths
+data_path = '/path/to/data'
+base_result_path = '/path/to/result/directory'
+
+'''
+The data is assumed to be stored in the following folder structure:
+/data
+--/Patient_0001
+----/date1                 # format: YYYYMMDDL, i.e. year, month, date, laterality (L or R)
+------vol_flat.nii         # the flattened OCT volume
+----/date2
+------vol_flat.nii
+--/Patient_0002
+...
+
+'''
+
+# TODO: Fill in all the patient IDs
+all_ids = [1, 2, 3, 4, 5]
 
 image_dirs_baseline = []
 image_dirs_followup = []
-
-
-# Parameters used for B-scans with 496x512 pixels
-top = 50
-bottom = 306
-crop = 8
-
-# inv_spatial_size = (512 - 2*crop, bottom-top)
-inv_spatial_size = (496, 256)
-spatial_size = (128, 248)
 
 for patient_id in all_ids:
 
@@ -55,14 +63,14 @@ for patient_id in all_ids:
     for date in dates_L:
         img = np.asarray(nib.load(os.path.join(patient_path, date, 'vol_flat.nii')).get_fdata())
         H, W, D = img.shape
-        if H == 496 and W == 512:
+        if H == 496 and W == 512:# and D == 25:
             usable_L.append(date)
 
     usable_R = []
     for date in dates_R:
         img = np.asarray(nib.load(os.path.join(patient_path, date, 'vol_flat.nii')).get_fdata())
         H, W, D = img.shape
-        if H == 496 and W == 512:
+        if H == 496 and W == 512:# and D == 25:
             usable_R.append(date)
 
     print('Patient ', patient_id, '- Dates (left eye):', len(usable_L), ', Dates (right eye):', len(usable_R))
@@ -74,7 +82,6 @@ for patient_id in all_ids:
 
         img_path_baseline = os.path.join(patient_path, baseline_date, 'vol_flat.nii')
         img_path_followup = os.path.join(patient_path, followup_date, 'vol_flat.nii')
-
         image_dirs_baseline.append(img_path_baseline)
         image_dirs_followup.append(img_path_followup)
 
@@ -85,7 +92,6 @@ for patient_id in all_ids:
 
         img_path_baseline = os.path.join(patient_path, baseline_date, 'vol_flat.nii')
         img_path_followup = os.path.join(patient_path, followup_date, 'vol_flat.nii')
-
         image_dirs_baseline.append(img_path_baseline)
         image_dirs_followup.append(img_path_followup)
 
@@ -93,7 +99,7 @@ for patient_id in all_ids:
 
 torch.backends.cudnn.benchmark = False
 torch.backends.cudnn.deterministic = True
-card = 3
+card = 0
 torch.cuda.set_device(card)
 device = 'cuda:' + str(card)
 
@@ -102,14 +108,12 @@ deform_dim = 3
 color_dim = 1
 
 epochs = 1000  # one epoch corresponds to all image pixel coordinates
-epochs_til_summary = 50  # generate visualizations every 50 epochs
+epochs_til_summary = 50  # generate visualizations every 50th epoch
 
-# -------------------------Define loss --------------------------------------------------------------------------------
-# Weighting parameters
-alpha_supp = 1
-alpha_res = 1
-alpha_mse = 100
+# ------------------------- Define loss weights and initialize loss functions -----------------------------------------
 alpha_ncc = 1
+alpha_mse = 100
+alpha_res = 200
 alpha_jac = 25
 alpha_grad = 0.25
 
@@ -118,10 +122,17 @@ lncc = LNCCLoss(win=(32, 32), n_channels=color_dim, is_tensor=False).to(device)
 reg = JacobianLossCoords(add_identity=False, is_tensor=False).to(device)
 mse = MSELoss().to(device)
 grad = GradLossCoords().to(device)
+# ---------------------------------------------------------------------------------------------------------------------
 
-# TODO: Change path
-base_result_path = 'result/path'
+# Parameters used for cropping
+top = 50
+bottom = 306
+crop = 8
 
+spatial_size = (128, 248)
+inv_spatial_size = (496, 256)
+
+# Main loop to register all image pairs
 for index in range(len(image_dirs_baseline)):
     os.environ['PYTHONHASHSEED'] = str(0)
     torch.manual_seed(0)
@@ -137,29 +148,35 @@ for index in range(len(image_dirs_baseline)):
 
     nifti_img = nib.load(mov_path)
     affine = nifti_img.affine
+
+    # Cropping to retina, if flattening height is different from the one used in the FRINR
+    # paper, you will need to adapt the following two lines
     moving_orig = np.float32(np.asarray(nifti_img.get_fdata()))[top:bottom, crop:-crop]
-    Hm, Wm, Dm = moving_orig.shape
-    moving = np.zeros((spatial_size[0], spatial_size[1], Dm))
-
     fixed_orig = np.float32(np.asarray(nib.load(ref_path).get_fdata()))[top:bottom, crop:-crop]
-    Hf, Wf, Df = fixed_orig.shape
-    fixed = np.zeros((spatial_size[0], spatial_size[1], Df))
 
+    Hm, Wm, Dm = moving_orig.shape
+    Hf, Wf, Df = fixed_orig.shape
     if not Dm == Df:
         print('Shapes of moving and fixed images do not match!')
         continue
+    else:
+        D = Dm
 
-    for d in range(Dm):
-        moving_orig[..., d] += moving_orig[..., d].min()
+    # Downsampling and slice-wise normalization
+    moving = np.zeros((spatial_size[0], spatial_size[1], Dm))
+    fixed = np.zeros((spatial_size[0], spatial_size[1], Df))
+
+    for d in range(D):
+        moving_orig[..., d] -= moving_orig[..., d].min()
         moving_orig[..., d] /= moving_orig[..., d].max()
         moving_orig[..., d] = moving_orig[..., d] * 2 - 1
         moving[..., d] = cv2.resize(moving_orig[..., d], (spatial_size[1], spatial_size[0])).astype(np.float32)
 
-    for d in range(Df):
-        fixed_orig[..., d] += fixed_orig[..., d].min()
+        fixed_orig[..., d] -= fixed_orig[..., d].min()
         fixed_orig[..., d] /= fixed_orig[..., d].max()
         fixed_orig[..., d] = fixed_orig[..., d] * 2 - 1
         fixed[..., d] = cv2.resize(fixed_orig[..., d], (spatial_size[1], spatial_size[0])).astype(np.float32)
+
 
     coords_init = make_coords_tensor(dims=(spatial_size[0], spatial_size[1], Dm))
 
@@ -174,10 +191,6 @@ for index in range(len(image_dirs_baseline)):
     if not os.path.exists(result_path):
         os.mkdir(result_path)
     print(result_path)
-
-    if os.path.isfile(os.path.join(result_path, 'moved.nii.gz')):
-        print('Images have been registered already!')
-        continue
 
     deformation_network = ImpNet(input_dim=input_dim, output_dim=deform_dim, hidden_dim=256, hidden_n_layers=5,
                                  last_layer_weights_small=True,
@@ -194,23 +207,24 @@ for index in range(len(image_dirs_baseline)):
     optimizer = torch.optim.AdamW(lr=0.0001, params=params)
     scheduler = torch.optim.lr_scheduler.ExponentialLR(optimizer, gamma=0.99)
 
-    # ------------------------- Training <<--------------------------------------------------------------------------------
+    # ------------------------- Training -----------------------------------------------------------------------------
 
     stream = tqdm(range(epochs))
     loop_monitor = MetricMonitor()
-    slices = np.arange(0, Dm, 1)
+    slices = np.arange(0, D, 1)
 
     for epoch in stream:
 
-        epoch_loss_mse = 0
-        epoch_loss_jac = 0
-        epoch_loss_ncc_full = 0
-        epoch_loss_excl = 0
+        epoch_loss_ncc = 0      # NCC and LNCC to compare moving and fixed images
+        epoch_loss_mse = 0      # MSE to compare appearance adapted moving and fixed images
+        epoch_loss_res = 0      # Sparsity of residual
+        epoch_loss_jac = 0      # Jacobian penalty (deformation regularization)
+        epoch_loss_grad = 0     # Gradient loss (deformation regularization)
         epoch_loss_all = 0
-        epoch_loss_grad = 0
 
         np.random.shuffle(slices)
 
+        # One epoch corresponds to a run through all B-scans (slow!)
         for slice in slices:
             image_coords = coords_init[np.arange(slice, spatial_size[0]*spatial_size[1]*Dm, Dm), :].to(device)
             moving_image = moving_image_vol[..., slice].to(device, dtype=torch.float32)
@@ -220,25 +234,36 @@ for index in range(len(image_dirs_baseline)):
             flow_add = coords + flow
 
             residual_pixels = residual_network(coords, clone=False)
-            residual_image = residual_pixels.view(spatial_size[0], spatial_size[1], color_dim).permute(2, 0, 1).unsqueeze(0)
+            residual_image = residual_pixels.view(spatial_size[0],
+                                                  spatial_size[1], color_dim).permute(2, 0, 1).unsqueeze(0)
             combined_image = residual_image + moving_image
 
-            moved_image = fast_trilinear_interpolation(moving_image[0, 0, :, :].unsqueeze(-1), flow_add[:, 0], flow_add[:, 1], flow_add[:, 2]).view(spatial_size[0], spatial_size[1])[None, None, :, :]
-            moved_combined_image = fast_trilinear_interpolation(combined_image[0, 0, :, :].unsqueeze(-1), flow_add[:, 0], flow_add[:, 1], flow_add[:, 2]).view(spatial_size[0], spatial_size[1])[None, None, :, :]
-
-            ##
+            moved_image = fast_trilinear_interpolation(moving_image[0, 0, :, :].unsqueeze(-1),
+                                                       flow_add[:, 0],
+                                                       flow_add[:, 1],
+                                                       flow_add[:, 2]).view(spatial_size[0],
+                                                                            spatial_size[1])[None, None, :, :]
+            moved_combined_image = fast_trilinear_interpolation(combined_image[0, 0, :, :].unsqueeze(-1),
+                                                                flow_add[:, 0],
+                                                                flow_add[:, 1],
+                                                                flow_add[:, 2]).view(spatial_size[0],
+                                                                                     spatial_size[1])[None, None, :, :]
 
             loss_all = torch.tensor(0)
             loss_ncc = (ncc(moved_image, fixed_image) + lncc(moved_image, fixed_image)) / 2
+            loss_mse = mse(fixed_image, moved_combined_image)
+            loss_res = torch.mean(residual_image**2)
             loss_jac = reg(coords, flow_add)
             loss_grad = grad(coords, flow)
-            loss_mse = mse(fixed_image, moved_combined_image) + 2*torch.mean(residual_image**2)
+
+            if alpha_ncc > 0:
+                loss_all = loss_all + alpha_ncc * loss_ncc
 
             if alpha_mse > 0:
                 loss_all = loss_all + alpha_mse * loss_mse
 
-            if alpha_ncc > 0:
-                loss_all = loss_all + alpha_ncc * loss_ncc#_full
+            if alpha_res > 0:
+                loss_all = loss_all + alpha_res * loss_res
 
             if alpha_jac > 0:
                 loss_all = loss_all + alpha_jac * loss_jac
@@ -250,14 +275,14 @@ for index in range(len(image_dirs_baseline)):
             loss_all.backward()
             optimizer.step()
 
+            epoch_loss_ncc += alpha_ncc * loss_ncc.item()
             epoch_loss_mse += alpha_mse * loss_mse.item()
+            epoch_loss_res += alpha_res * loss_res.item()
             epoch_loss_jac += alpha_jac * loss_jac.item()
-            epoch_loss_ncc_full += alpha_ncc * loss_ncc.item()#_full.item()
             epoch_loss_grad += alpha_grad * loss_grad.item()
             epoch_loss_all += loss_all.item()
 
-            if not epoch % epochs_til_summary and slice == Dm//2:
-
+            if not epoch % epochs_til_summary and slice == D//2:
                 temp_moved = moved_image.cpu().detach().squeeze().squeeze(0).numpy() * 0.5 + 0.5
                 temp_recon = combined_image.cpu().detach().squeeze().squeeze(0).numpy() * 0.5 + 0.5
                 temp_residual = residual_pixels.cpu().detach().view(spatial_size[0], spatial_size[1]).numpy() * 0.5 + 0.5
@@ -303,15 +328,14 @@ for index in range(len(image_dirs_baseline)):
                 plt.close()
 
         scheduler.step()
-        loop_monitor.update('mse loss', alpha_mse * loss_mse.item())
-        loop_monitor.update('reg loss', alpha_jac * loss_jac.item())
-        loop_monitor.update('ncc loss', alpha_supp * loss_ncc.item())
         loop_monitor.update('loss', loss_all.item())
         stream.set_description(
             'Epoch: {epoch}. Train. {metric_monitor}'.format(epoch=epoch, metric_monitor=loop_monitor))
 
-        df = pd.DataFrame(data=np.array([[loss_mse.item(), loss_jac.item(), loss_ncc.item()]]),
-                          columns=('MSE Loss', 'Jac Loss', 'NCC Loss'))
+        df = pd.DataFrame(data=np.array([[loss_ncc.item(), loss_mse.item(), loss_res.item(),
+                                          loss_jac.item(), loss_grad.item(), loss_all.item()]]),
+                          columns=('NCC Loss', 'MSE Loss', 'Sparsity Loss',
+                                   'Jacobian Loss', 'Gradient Loss', 'Loss'))
         if epoch == 0:
             df.to_csv(os.path.join(result_path, "losses.csv"))
         else:
