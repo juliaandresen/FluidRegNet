@@ -1,9 +1,8 @@
 import torch
-
-import torch.nn.functional as F
 import numpy as np
 
 from collections import defaultdict
+
 
 def make_coords_tensor(dims=(256, 256, 64), is_vector=True):
 
@@ -63,6 +62,7 @@ def fast_bilinear_color_interpolation(input_array, x_indices, y_indices):
         output[:, i] = temp
     
     return output
+
 
 def fast_bilinear_interpolation(input_array, x_indices, y_indices):
     
@@ -179,22 +179,6 @@ class MetricMonitor:
         return ' | '.join(
             ['{metric_name}: {temp:.{float_precision}f}'.format(metric_name=metric_name, temp=metric['average'], float_precision=self.float_precision) for (metric_name, metric) in self.metrics.items()]
         )    
-
-
-    
-
-    
-    
-    
-    
-    
-    
-    
-    
-    
-    
-    
-    
     
     
     
