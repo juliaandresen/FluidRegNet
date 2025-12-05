@@ -13,3 +13,8 @@ plausible locations.
 
 The code is based on ImpRegDec (https://conferences.miccai.org/2023/papers/331-Paper1136.html) with modifications for
 3D and grayscale images.
+
+Please cite 
+FRINR: Pathology-Aware Implicit Neural Registration for Change Analysis in Retinal OCT Data
+by J. Andresen, B. Kahrs, H. Handels and T. Kepp (BVM 2026)
+when using this repository.
